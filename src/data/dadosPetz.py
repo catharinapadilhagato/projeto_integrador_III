@@ -1,6 +1,7 @@
 import asyncio
 import io
 import re
+import os
 import unicodedata
 from urllib.parse import urljoin
 
@@ -35,6 +36,32 @@ def empresa_da_tabela(tabela):
     return EMPRESA_POR_TABELA.get(tabela.get("id"))
 
 
+# 1. LANÇADOR DE NAVEGADOR (funciona na nuvem e no Windows)
+async def lancar_navegador(p):
+    """
+    - Streamlit Cloud (Linux): usa o Chromium instalado pelo packages.txt.
+    - Windows/local: tenta Edge, depois Chrome, depois o Chromium do Playwright
+      (o último só funciona se `python -m playwright install chromium` tiver sido executado).
+    """
+    caminho_chromium = "/usr/bin/chromium"
+    if os.path.exists(caminho_chromium):
+        return await p.chromium.launch(
+            headless=True,
+            executable_path=caminho_chromium,
+            args=["--no-sandbox", "--disable-dev-shm-usage"],
+        )
+
+    ultimo_erro = None
+    for canal in ("msedge", "chrome", None):
+        try:
+            if canal:
+                return await p.chromium.launch(headless=True, channel=canal)
+            return await p.chromium.launch(headless=True)
+        except Exception as e:
+            ultimo_erro = e
+    raise ultimo_erro
+
+
 # 2. MOTOR DE DOWNLOAD (CAPTURA AS PLANILHAS DIRETAMENTE DO SITE)
 async def extrair_planilhas_por_ano():
     url_site = "https://ri.petzcobasi.com.br/informacoes-financeiras/planilha-interativa/"
@@ -43,11 +70,7 @@ async def extrair_planilhas_por_ano():
     textos_vistos = set()  # diagnóstico: todos os links de planilha que o site expôs
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            executable_path="/usr/bin/chromium",
-            args=["--no-sandbox", "--disable-dev-shm-usage"],
-        )
+        browser = await lancar_navegador(p)
         page = await browser.new_page()
         await page.goto(url_site, wait_until="networkidle")
 
@@ -228,33 +251,23 @@ async def main():
     return analises
 
 
-_cache = None
-
-
 def carregar_analises():
-    """Versão síncrona para usar em outros módulos. O scraping roda uma única vez."""
-    global _cache
-    if _cache is None:
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            _cache = asyncio.run(main())
-        else:
-            # Já existe um loop rodando (Jupyter / Interactive Window do VS Code):
-            # roda em outra thread, que tem o próprio loop.
-            from concurrent.futures import ThreadPoolExecutor
+    """
+    Versão síncrona para usar em outros módulos.
+    O cache fica por conta do st.cache_data (em analyse.py), então aqui
+    o scraping roda toda vez que a função é chamada.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(main())
+    else:
+        # Já existe um loop rodando (Jupyter / Interactive Window do VS Code):
+        # roda em outra thread, que tem o próprio loop.
+        from concurrent.futures import ThreadPoolExecutor
 
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                _cache = executor.submit(lambda: asyncio.run(main())).result()
-    return _cache
-
-
-def __getattr__(nome):
-    # Permite `from data.dadosPetz import analises` sem rodar o scraping no import do módulo:
-    # ele só roda quando `analises` é realmente pedido.
-    if nome == "analises":
-        return carregar_analises()
-    raise AttributeError(f"module {__name__!r} has no attribute {nome!r}")
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            return executor.submit(lambda: asyncio.run(main())).result()
 
 
 if __name__ == "__main__":

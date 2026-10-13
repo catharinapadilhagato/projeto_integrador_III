@@ -2,11 +2,17 @@
 import streamlit as st
 import html
 
-from src.data.dadosPetz import analises
-
 import matplotlib.pyplot as plt
 import seaborn as sns
 from src.util.graficos import correlacao
+
+from src.data import dadosPetz
+
+@st.cache_data(ttl=60 * 60 * 24, show_spinner="Buscando dados no RI, pode levar alguns instantes...")
+def obter_analises():
+    return dadosPetz.carregar_analises()
+
+analises = obter_analises()
 
 st.title("Analise do RI do grupo Petz Cobasi", text_alignment='center')
 st.markdown(
