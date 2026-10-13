@@ -43,7 +43,11 @@ async def extrair_planilhas_por_ano():
     textos_vistos = set()  # diagnóstico: todos os links de planilha que o site expôs
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(
+            headless=True,
+            executable_path="/usr/bin/chromium",
+            args=["--no-sandbox", "--disable-dev-shm-usage"],
+        )
         page = await browser.new_page()
         await page.goto(url_site, wait_until="networkidle")
 
