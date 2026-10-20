@@ -1,7 +1,7 @@
 import asyncio
 import io
-import re
 import os
+import re
 import unicodedata
 from urllib.parse import urljoin
 
@@ -36,30 +36,29 @@ def empresa_da_tabela(tabela):
     return EMPRESA_POR_TABELA.get(tabela.get("id"))
 
 
-# 1. LANÇADOR DE NAVEGADOR (funciona na nuvem e no Windows)
+# 1. LANÇADOR DE NAVEGADOR (funciona na nuvem e no Linux local)
 async def lancar_navegador(p):
     """
-    - Streamlit Cloud (Linux): usa o Chromium instalado pelo packages.txt.
-    - Windows/local: tenta Edge, depois Chrome, depois o Chromium do Playwright
-      (o último só funciona se `python -m playwright install chromium` tiver sido executado).
+    - Streamlit Cloud / Docker: usa o Chromium do sistema (/usr/bin/chromium).
+    - Linux/Windows local: usa o Chromium baixado pelo `playwright install`.
     """
     caminho_chromium = "/usr/bin/chromium"
     if os.path.exists(caminho_chromium):
         return await p.chromium.launch(
             headless=True,
             executable_path=caminho_chromium,
-            args=["--no-sandbox", "--disable-dev-shm-usage"],
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+            ],
         )
 
-    ultimo_erro = None
-    for canal in ("msedge", "chrome", None):
-        try:
-            if canal:
-                return await p.chromium.launch(headless=True, channel=canal)
-            return await p.chromium.launch(headless=True)
-        except Exception as e:
-            ultimo_erro = e
-    raise ultimo_erro
+    return await p.chromium.launch(
+        headless=True,
+        args=["--no-sandbox", "--disable-dev-shm-usage"],
+    )
 
 
 # 2. MOTOR DE DOWNLOAD (CAPTURA AS PLANILHAS DIRETAMENTE DO SITE)
@@ -67,55 +66,80 @@ async def extrair_planilhas_por_ano():
     url_site = "https://ri.petzcobasi.com.br/informacoes-financeiras/planilha-interativa/"
     alvos = ("Petz", "Cobasi", "Fusão")
     links_encontrados = {}
-    textos_vistos = set()  # diagnóstico: todos os links de planilha que o site expôs
 
     async with async_playwright() as p:
         browser = await lancar_navegador(p)
-        page = await browser.new_page()
-        await page.goto(url_site, wait_until="networkidle")
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        )
+        page = await context.new_page()
 
-        dropdown_contexto = page
-        if not await page.locator("select#yearSelect").count():
+        try:
+            # 1. Carrega a página e aguarda o DOM estar pronto
+            await page.goto(url_site, wait_until="domcontentloaded", timeout=60000)
+            await page.wait_for_timeout(4000)
+
+            # 2. Localiza o iFrame que contém a planilha/seletores
+            contexto = page
             for frame in page.frames:
-                if "mziq" in frame.url or await frame.locator("select#yearSelect").count():
-                    dropdown_contexto = frame
+                if "mziq" in frame.url or "planilha" in frame.url:
+                    contexto = frame
                     break
 
-        await dropdown_contexto.locator("select#yearSelect").wait_for(state="attached", timeout=10000)
-        anos = await dropdown_contexto.locator("select#yearSelect").evaluate(
-            "select => Array.from(select.options).map(opt => opt.value)"
-        )
-        anos_validos = sorted([ano for ano in anos if ano.strip().isdigit()], reverse=True)
+            if contexto == page:
+                for frame in page.frames:
+                    if await frame.locator("select#yearSelect").count() > 0:
+                        contexto = frame
+                        break
 
-        for ano in anos_validos:
-            if len(links_encontrados) == len(alvos):
-                break
-            await dropdown_contexto.select_option("select#yearSelect", value=ano)
-            await page.wait_for_timeout(3500)
+            # 3. Espera o seletor de anos estar anexado no DOM
+            await contexto.locator("select#yearSelect").wait_for(state="attached", timeout=20000)
+            
+            anos = await contexto.locator("select#yearSelect").evaluate(
+                "select => Array.from(select.options).map(opt => opt.value)"
+            )
+            anos_validos = sorted([ano for ano in anos if ano.strip().isdigit()], reverse=True)
+            print(f"Anos encontrados no RI: {anos_validos}")
 
-            soup = BeautifulSoup(await dropdown_contexto.content(), "html.parser")
-            for tabela in soup.find_all("table", id=re.compile(r"^tabela_\d+$")):
-                nome = empresa_da_tabela(tabela)
-                links = [
-                    a for a in tabela.find_all("a", href=True)
-                    if not a["href"].startswith(("#", "javascript"))
-                ]
-                for a in links:
-                    textos_vistos.add(f"{ano} | {tabela.get('id')} | {nome} | {a.get_text(strip=True)}")
-                if nome and nome not in links_encontrados and links:
-                    links_encontrados[nome] = urljoin(url_site, links[0]["href"])
+            # 4. Percorre os anos capturando os links de cada empresa
+            for ano in anos_validos:
+                if len(links_encontrados) == len(alvos):
+                    break
 
-        await browser.close()
+                await contexto.select_option("select#yearSelect", value=ano)
+                await page.wait_for_timeout(3000)
+
+                soup = BeautifulSoup(await contexto.content(), "html.parser")
+                tabelas = soup.find_all("table", id=re.compile(r"^tabela_\d+$"))
+
+                for tabela in tabelas:
+                    nome = empresa_da_tabela(tabela)
+                    links = [
+                        a for a in tabela.find_all("a", href=True)
+                        if not a["href"].startswith(("#", "javascript"))
+                    ]
+                    if nome and nome not in links_encontrados and links:
+                        links_encontrados[nome] = urljoin(url_site, links[0]["href"])
+
+        except Exception as e:
+            print(f"Erro durante a raspagem web via Playwright: {e}")
+        finally:
+            await browser.close()
+
+    print(f"Links de planilhas coletados: {links_encontrados}")
 
     dados_empresas = {}
-    headers = {"User-Agent": "Mozilla/5.0"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    }
     for empresa, url_planilha in links_encontrados.items():
         try:
             resposta = requests.get(url_planilha, headers=headers, timeout=30)
             resposta.raise_for_status()
             dados_empresas[empresa] = pd.read_excel(io.BytesIO(resposta.content), sheet_name=None)
         except Exception as e:
-            print(f"Erro ao ler {empresa}: {e}")
+            print(f"Erro ao baixar/ler a planilha de {empresa}: {e}")
+
     return dados_empresas
 
 
@@ -201,7 +225,7 @@ def montar_modelo_analitico_trimestral(dados_da_empresa):
         if df is None or "Conta_EN" not in df.columns:
             return pd.Series(dtype=float)
         linha = df[df["Conta_EN"].str.contains(termo_busca_en, case=False, na=False, regex=regex)]
-        if not linha.empty and len(linha) > ocorrencia:
+        if not linha.empty and len(linha) > abs(ocorrencia):
             colunas_datas = [c for c in df.columns if c not in ["Grupo_Pai", "Conta_PT", "Conta_EN"]]
             return pd.to_numeric(linha.iloc[ocorrencia][colunas_datas], errors="coerce").fillna(0)
         return pd.Series(dtype=float)
@@ -253,17 +277,13 @@ async def main():
 
 def carregar_analises():
     """
-    Versão síncrona para usar em outros módulos.
-    O cache fica por conta do st.cache_data (em analyse.py), então aqui
-    o scraping roda toda vez que a função é chamada.
+    Versão síncrona para uso com Streamlit.
     """
     try:
         asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(main())
     else:
-        # Já existe um loop rodando (Jupyter / Interactive Window do VS Code):
-        # roda em outra thread, que tem o próprio loop.
         from concurrent.futures import ThreadPoolExecutor
 
         with ThreadPoolExecutor(max_workers=1) as executor:

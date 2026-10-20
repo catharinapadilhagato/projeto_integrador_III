@@ -6,6 +6,7 @@ from io import StringIO
 import matplotlib.pyplot as plt
 import seaborn as sns
 from src.util.graficos import correlacao, linha
+from src.util import graficos2, graficos3
 
 from src.data import dadosPetz
 
@@ -85,6 +86,7 @@ st.dataframe(df.describe())
 st.subheader(f"Correlaçao entre os dados da {empresa}", text_alignment='center')
 fig_corr = correlacao(df)
 st.pyplot(fig_corr)
+plt.close(fig_corr)
 
 st.divider()
 
@@ -92,3 +94,207 @@ st.subheader(f"Comportamento da empresa ao longo do tempo")
 for i in df.columns:
     fig_lin = linha(df, "Trimestre", i)
     st.pyplot(fig_lin)
+    plt.close(fig_lin)
+
+st.divider()
+
+# ==============================================================================
+# SEÇÃO: ANÁLISES FINANCEIRAS COMPLEMENTARES
+# ==============================================================================
+st.header("Análises Financeiras Complementares", text_alignment="center")
+st.markdown(
+    "<p style='text-align:center; max-width:850px; margin:0 auto 2rem'>"
+    "Visualizações estatísticas e financeiras complementares investigando rentabilidade, distribuição dos resultados, "
+    "endividamento, liquidez, eficiência operacional e comparações entre Petz e Cobasi."
+    "</p>",
+    unsafe_allow_html=True
+)
+
+# 1. Histogramas Financeiros
+st.subheader(f"1. Histogramas Financeiros e Operacionais ({empresa})")
+fig1 = graficos2.grafico_histogramas_financeiros(df, empresa)
+st.pyplot(fig1)
+plt.close(fig1)
+
+st.divider()
+
+# 2. Boxplots Financeiros Comparativos
+st.subheader("2. Boxplots Financeiros Comparativos (Petz vs. Cobasi)")
+fig2 = graficos2.grafico_boxplots_financeiros(analises)
+st.pyplot(fig2)
+plt.close(fig2)
+
+st.divider()
+
+# 3 e 4. Dispersões (Organizados em 2 Colunas para melhor leitura)
+col_disp1, col_disp2 = st.columns(2)
+with col_disp1:
+    st.subheader("3. Receita Líquida vs. Lucro Líquido")
+    fig3 = graficos2.grafico_dispersao_receita_lucro(analises)
+    st.pyplot(fig3)
+    plt.close(fig3)
+
+with col_disp2:
+    st.subheader("4. EBITDA vs. Margem EBITDA")
+    fig4 = graficos2.grafico_dispersao_ebitda_margem(analises)
+    st.pyplot(fig4)
+    plt.close(fig4)
+
+st.divider()
+
+# 5. Estrutura de Endividamento
+st.subheader(f"5. Estrutura de Endividamento e Posição Financeira ({empresa})")
+fig5 = graficos2.grafico_comparacao_divida(df, empresa)
+st.pyplot(fig5)
+plt.close(fig5)
+
+st.divider()
+
+# 6. Liquidez e Composição da Dívida
+st.subheader(f"6. Liquidez Disponível e Cobertura da Dívida de Curto Prazo ({empresa})")
+fig6 = graficos2.grafico_liquidez_composicao_divida(df, empresa)
+st.pyplot(fig6)
+plt.close(fig6)
+
+st.divider()
+
+# 7. Variação Percentual QoQ
+st.subheader(f"7. Variação Percentual Trimestre contra Trimestre (QoQ) ({empresa})")
+fig7 = graficos2.grafico_variacao_percentual_qoq(df, empresa)
+st.pyplot(fig7)
+plt.close(fig7)
+
+st.divider()
+
+# 8. Margem EBITDA vs. Margem Líquida
+st.subheader(f"8. Análise da Margem EBITDA e da Margem Líquida ({empresa})")
+fig8 = graficos2.grafico_margens_ebitda_liquida(df, empresa)
+st.pyplot(fig8)
+plt.close(fig8)
+
+st.divider()
+
+# 9. Evolução Relativa Base 100
+st.subheader(f"9. Evolução Relativa dos Indicadores Financeiros — Base 100 ({empresa})")
+fig9 = graficos2.grafico_evolucao_relativa_base100(df, empresa)
+st.pyplot(fig9)
+plt.close(fig9)
+
+st.divider()
+
+# 10. Relação entre Estoques e Receita Líquida
+st.subheader("10. Relação entre Estoques e Receita Líquida")
+fig10 = graficos2.grafico_relacao_estoques_receita(analises)
+st.pyplot(fig10)
+plt.close(fig10)
+
+st.divider()
+
+# ==============================================================================
+# SEÇÃO: ANÁLISES FINANCEIRAS — PETZ E COBASI
+# ==============================================================================
+st.header("Análises Financeiras — Petz e Cobasi", text_alignment="center")
+st.markdown(
+    "<p style='text-align:center; max-width:850px; margin:0 auto 1.5rem'>"
+    "Investigação aprofundada sobre a união entre Petz e Cobasi: avaliação de melhorias de desempenho "
+    "da Petz após a união, rentabilidade, geração de caixa e comparação direta com a Cobasi nos períodos coincidentes."
+    "</p>",
+    unsafe_allow_html=True
+)
+
+# Configuração explícita do marco temporal de corte da união
+c1, c2 = st.columns([1, 2])
+with c1:
+    trimestre_corte = st.selectbox(
+        "Marco temporal de corte da união:",
+        options=["1T25", "3T24", "2T24"],
+        index=0,
+        help="1T25: Fechamento formal e aprovação CADE | 3T24: Assinatura do Acordo Definitivo | 2T24: Anúncio do MoU"
+    )
+with c2:
+    st.info(
+        f"**Configuração ativa:** Pré-União (< {trimestre_corte}) vs. Pós-União (>= {trimestre_corte}). "
+        "A classificação respeita o histórico de divulgações do RI sem criar dados artificiais."
+    )
+
+# ------------------------------------------------------------------------------
+# Categoria 1: Desempenho da Petz antes e depois da união
+# ------------------------------------------------------------------------------
+st.subheader("1. Desempenho da Petz Antes e Depois da União")
+
+st.markdown("#### Gráfico 1 — Comparação de Médias Trimestrais (Receita Líquida, EBITDA e Lucro)")
+fig_g1 = graficos3.grafico_petz_pre_pos_barras(analises["Petz"], trimestre_corte=trimestre_corte)
+st.pyplot(fig_g1)
+plt.close(fig_g1)
+
+st.markdown("#### Gráfico 4 — Boxplots Distributivos e Volatilidade (Petz)")
+fig_g4 = graficos3.grafico_petz_boxplots_pre_pos(analises["Petz"], trimestre_corte=trimestre_corte)
+st.pyplot(fig_g4)
+plt.close(fig_g4)
+
+st.divider()
+
+# ------------------------------------------------------------------------------
+# Categoria 2: Rentabilidade e geração de caixa
+# ------------------------------------------------------------------------------
+st.subheader("2. Rentabilidade e Geração de Caixa")
+
+st.markdown("#### Gráfico 2 — Margens de Rentabilidade da Petz (Agregada vs. Trimestral)")
+fig_g2 = graficos3.grafico_petz_margens_pre_pos(analises["Petz"], trimestre_corte=trimestre_corte)
+st.pyplot(fig_g2)
+plt.close(fig_g2)
+
+st.markdown("#### Gráfico 3 — Liquidez, Dívida Líquida e Fluxo de Caixa Operacional (Petz)")
+fig_g3 = graficos3.grafico_petz_divida_caixa_fco(analises["Petz"], trimestre_corte=trimestre_corte)
+st.pyplot(fig_g3)
+plt.close(fig_g3)
+
+st.markdown("#### Gráfico 5 — Crescimento da Receita (YoY) vs. Margem EBITDA (Petz)")
+fig_g5 = graficos3.grafico_petz_crescimento_vs_rentabilidade(analises["Petz"], trimestre_corte=trimestre_corte)
+st.pyplot(fig_g5)
+plt.close(fig_g5)
+
+st.markdown("#### Gráfico 6 — Estoques vs. Receita Líquida (Petz)")
+fig_g6 = graficos3.grafico_petz_estoques_vs_receita(analises["Petz"], trimestre_corte=trimestre_corte)
+st.pyplot(fig_g6)
+plt.close(fig_g6)
+
+st.markdown("#### Gráfico 7 — Lucro Líquido vs. Fluxo de Caixa Operacional (Petz)")
+fig_g7 = graficos3.grafico_petz_lucro_vs_fco(analises["Petz"], trimestre_corte=trimestre_corte)
+st.pyplot(fig_g7)
+plt.close(fig_g7)
+
+st.divider()
+
+# ------------------------------------------------------------------------------
+# Categoria 3: Comparação entre Petz e Cobasi
+# ------------------------------------------------------------------------------
+st.subheader("3. Comparação entre Petz e Cobasi nos Períodos Coincidentes")
+
+st.markdown("#### Gráfico 8 — Comparação de Resultados Financeiros (Trimestres Comuns)")
+fig_g8 = graficos3.grafico_comparacao_petz_cobasi_resultados(analises)
+st.pyplot(fig_g8)
+plt.close(fig_g8)
+
+st.markdown("#### Gráfico 9 — Comparação de Margens Operacionais e Líquidas")
+fig_g9 = graficos3.grafico_comparacao_petz_cobasi_rentabilidade(analises)
+st.pyplot(fig_g9)
+plt.close(fig_g9)
+
+st.markdown("#### Gráfico 10 — Índice de Desempenho Relativo (Base 100)")
+fig_g10 = graficos3.grafico_indice_base100_petz_cobasi(analises)
+st.pyplot(fig_g10)
+plt.close(fig_g10)
+
+st.divider()
+
+# ------------------------------------------------------------------------------
+# Categoria 4: Distribuição e estabilidade dos indicadores
+# ------------------------------------------------------------------------------
+st.subheader("4. Distribuição e Estabilidade dos Indicadores")
+
+emp_hist = st.selectbox("Selecione a empresa para visualização dos histogramas:", options=["Petz", "Cobasi"], index=0)
+fig_g11 = graficos3.grafico_histogramas_distribuicao_estabilidade(analises, empresa=emp_hist)
+st.pyplot(fig_g11)
+plt.close(fig_g11)
+
